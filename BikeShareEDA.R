@@ -2,6 +2,7 @@ library(vroom)
 library(tidyverse)
 library(DataExplorer)
 library(GGally)
+library(patchwork)
 
 
 
@@ -78,3 +79,6 @@ ggplot(hour_train, aes(x = timeDay, y = count, fill = timeDay)) +
     y = "Count"
   ) -> timeday_plot
 
+
+plots <- (boxplot + lag_plot) / (timeday_plot + correlation)
+ggsave("EDAPractice.png", device = "png")
