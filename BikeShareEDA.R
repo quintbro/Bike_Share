@@ -25,7 +25,7 @@ plot_intro(train)
 correlation <- plot_correlation(train)
 plot_bar(train)
 plot_histogram(train)
-pairs(train)
+
 
 ggplot(train, aes(x = temp, y = count)) +
   geom_point() +
@@ -67,18 +67,31 @@ train %>%
   mutate(hour = format(as.POSIXct(datetime), format = "%H")) %>%
   mutate(hour = as.numeric(hour)) %>%
   mutate(timeDay = case_when(hour >= 22 | hour <= 6 ~ "Night",
-                             hour > 6 & hour < 22 ~ "Day"))-> hour_train
+                             hour > 6 & hour < 22 ~ "Day")) -> hour_train
 
-ggplot(hour_train, aes(x = timeDay, y = count, fill = timeDay)) +
-  geom_boxplot() +
+train %>%
+  mutate(hour = hour(datetime)) %>% glimpse()
+
+train %>%
+  mutate(lagged = lag(count, n = 24)) %>%
+  select(count, lagged, temp, season, humidity) %>%
+  ggplot(aes(x = lagged, y = count)) +
+  geom_point()
+
+ggplot(hour_train, aes(x = hour, y = count)) +
+  geom_point(position = "jitter") +
   theme_bw() +
   theme(aspect.ratio = 1) +
   labs(
     title = "Box Plots by Time of Day",
     x = "Time of Day",
     y = "Count"
-  ) -> timeday_plot
+  ) #-> timeday_plot
 
 
 plots <- (boxplot + lag_plot) / (timeday_plot + correlation)
 ggsave("EDAPractice.png", device = "png")
+
+
+vroom("test.csv")
+train %>% view()
