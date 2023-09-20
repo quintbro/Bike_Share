@@ -9,11 +9,7 @@ setwd("C:/Users/rileyw/Bike_Share")
 vroom("train.csv") -> train
 vroom("test.csv") -> test
 
-# Clean the data set by assigning weather = 4 to a different category because there
-# is only one observation
-train %>%
-  mutate(weather = case_when(weather == 4 ~ 3,
-                             weather < 4 ~ weather)) -> train
+
 
 # Use tidy models to do some feature engineering
 myrecipe <- recipe(count ~ datetime + season + holiday + workingday + weather + temp + atemp + humidity + windspeed
@@ -28,7 +24,13 @@ myrecipe <- recipe(count ~ datetime + season + holiday + workingday + weather + 
               workingday = as_factor(workingday),
               weather = as_factor(weather)) %>%
   step_rm(atemp) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_numeric_predictors()) %>%
   step_zv(all_predictors()) 
+
+
+
+
 prepped_recipe <- prep(myrecipe)  
 
 bake(prepped_recipe, test)
@@ -73,4 +75,53 @@ pois_preds %>%
   dplyr::select(datetime, count) -> submission
 
 vroom_write(submission, "poisson_sub.csv", delim = ",")
+extract_fit_engine(bike_pois_workflow)
 
+
+
+#--------------Penalized Regression------------------------------------
+
+setwd("C:/Users/rileyw/Bike_Share")
+# Read in the training data set
+vroom("train.csv") -> train
+vroom("test.csv") -> test
+
+# Log transform the count variable
+log_train <- train %>%
+  mutate(count = log(count))
+
+# Use tidy models to do some feature engineering
+myrecipe <- recipe(count ~ datetime + season + holiday + workingday + weather + temp + atemp + humidity + windspeed
+                   , data = train) %>%
+  step_mutate(hour = hour(datetime)) %>% # create an hour variable
+  step_mutate(hour = as.numeric(hour)) %>% # change the hour to be numeric
+  step_mutate(timeDay = case_when(hour >= 22 | hour <= 6 ~ "Night", # make a time of day variable
+                                  hour > 6 & hour < 22 ~ "Day")) %>% # with night and day
+  step_mutate(timeDay=factor(timeDay)) %>%
+  step_mutate(weather = if_else(weather == 4, 3, weather)) %>%
+  step_mutate(season = as_factor(season),
+              holiday = as_factor(holiday),
+              workingday = as_factor(workingday),
+              weather = as_factor(weather)) %>%
+  step_rm(atemp) %>%
+  step_rm(datetime) %>%
+  step_dummy(all_nominal_predictors()) %>%      # We need to make them into dummies because the penalized regression methods don't like categorical variables
+  step_normalize(all_numeric_predictors()) %>% # This is putting all of the variables on the same scale
+  step_zv(all_predictors()) 
+
+bake(prep(myrecipe), train)
+
+preg_model <- poisson_reg(penalty = 1, mixture = .00001) %>%
+  set_engine("glmnet")
+preg_wf <- workflow() %>%
+  add_recipe(myrecipe) %>%
+  add_model(preg_model) %>%
+  fit(data = log_train)
+
+preds <- predict(preg_wf, new_data = test) %>%
+  mutate(count = exp(.pred)) %>%
+  mutate(datetime = format(test$datetime)) %>%
+  mutate(count = if_else(count < 0, 0, count)) %>%
+  dplyr::select(datetime, count)
+
+vroom_write(preds, "pen.csv", delim = ",")
