@@ -111,7 +111,7 @@ myrecipe <- recipe(count ~ datetime + season + holiday + workingday + weather + 
 
 bake(prep(myrecipe), train)
 
-preg_model <- poisson_reg(penalty = 1, mixture = .00001) %>%
+preg_model <- poisson_reg(penalty = 1, mixture = 0) %>%
   set_engine("glmnet")
 preg_wf <- workflow() %>%
   add_recipe(myrecipe) %>%
