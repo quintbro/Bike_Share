@@ -105,6 +105,7 @@ myrecipe <- recipe(count ~ datetime + season + holiday + workingday + weather +
               holiday = as_factor(holiday),
               workingday = as_factor(workingday),
               weather = as_factor(weather)) %>%
+  step_mutate(decimal = decimal_date(datetime)) %>%
   step_interact(terms = ~ weather*humidity) %>%
   step_rm(atemp) %>%
   step_rm(datetime) %>%
@@ -170,7 +171,7 @@ vroom("train.csv") -> train
 vroom("test.csv") -> test
 
 # Log transform the count variable
-log_train <- train %>%
+train <- train %>%
   mutate(count = log(count))
 
 myrecipe <- recipe(count ~ datetime + season + holiday + workingday + weather + 
@@ -195,7 +196,7 @@ myrecipe <- recipe(count ~ datetime + season + holiday + workingday + weather +
 
 bake(prep(myrecipe), train)
 
-reg_model <- linear_reg(penalty = tune(), 
+reg_model <- poisson_reg(penalty = tune(), 
                         mixture = tune()) %>%
   set_engine("glmnet")
 
@@ -231,4 +232,4 @@ preds <- predict(final_wf, new_data = test) %>%
   dplyr::select(datetime, count)
 
 vroom_write(preds, "pen.csv", delim = ",")
-preds
+
