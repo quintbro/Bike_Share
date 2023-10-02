@@ -233,3 +233,253 @@ preds <- predict(final_wf, new_data = test) %>%
 
 vroom_write(preds, "pen.csv", delim = ",")
 
+
+#------------ Regression Tree --------------
+
+library(tidymodels)
+library(tidyverse)
+library(vroom)
+library(rpart)
+
+setwd("C:/Users/rileyw/Bike_Share")
+# Read in the training data set
+vroom("train.csv") -> train
+vroom("test.csv") -> test
+
+train <- train %>%
+  mutate(count = log(count))
+
+myrecipe <- recipe(count ~ datetime + season + holiday + workingday + weather + 
+                     temp + atemp + humidity + windspeed,
+                   data = train) %>%
+  step_mutate(hour = hour(datetime)) %>% # create an hour variable
+  step_mutate(hour = as.numeric(hour)) %>% # change the hour to be numeric
+  step_mutate(timeDay = case_when(hour >= 22 | hour <= 6 ~ "Night", # make a time of day variable
+                                  hour > 6 & hour < 22 ~ "Day")) %>% # with night and day
+  step_mutate(timeDay=factor(timeDay)) %>%
+  step_mutate(weather = if_else(weather == 4, 3, weather)) %>%
+  step_mutate(season = as_factor(season),
+              holiday = as_factor(holiday),
+              workingday = as_factor(workingday),
+              weather = as_factor(weather)) %>%
+  step_rm(atemp) %>%
+  step_rm(datetime) %>%
+  step_zv(all_predictors()) 
+
+reg_tree <- decision_tree(tree_depth = tune(),
+                          cost_complexity = tune(),
+                          min_n = tune()) %>%
+  set_engine("rpart") %>%
+  set_mode("regression")
+
+regt_wf <- workflow() %>%
+  add_recipe(myrecipe) %>%
+  add_model(reg_tree)
+
+cv_grid <- grid_regular(tree_depth(),
+                        cost_complexity(),
+                        min_n(),
+                        levels = 10)
+folds <- vfold_cv(train, v = 5)
+
+cv_results <- regt_wf %>%
+  tune_grid(resamples = folds,
+            grid = cv_grid,
+            metrics = metric_set(rmse))
+
+tuning_params <- cv_results %>%
+  select_best("rmse")
+
+final_wf <- regt_wf %>%
+  finalize_workflow(parameters = tuning_params) %>%
+  fit(data = train)
+
+
+
+preds <- predict(final_wf, new_data = test) %>%
+  mutate(count = exp(.pred)) %>%
+  mutate(datetime = format(test$datetime)) %>%
+  mutate(count = if_else(count < 0, 0, count)) %>%
+  dplyr::select(datetime, count)
+
+vroom_write(preds, "pen.csv", delim = ",")
+
+
+#------------------ Random Forests -----------------------
+
+
+library(tidymodels)
+library(tidyverse)
+library(vroom)
+library(rpart)
+library(ranger)
+
+setwd("C:/Users/rileyw/Bike_Share")
+# Read in the training data set
+vroom("train.csv") -> train
+vroom("test.csv") -> test
+
+train <- train %>%
+  mutate(count = log(count)) %>%
+  select(-c(casual, registered))
+
+myrecipe <- recipe(count ~ .,
+                   data = train) %>%
+  step_mutate(hour = hour(datetime)) %>% # create an hour variable
+  step_mutate(hour = as.numeric(hour)) %>% # change the hour to be numeric
+  step_mutate(timeDay = case_when(hour >= 22 | hour <= 6 ~ "Night", # make a time of day variable
+                                  hour > 6 & hour < 22 ~ "Day")) %>% # with night and day
+  step_mutate(timeDay=factor(timeDay)) %>%
+  step_mutate(weather = if_else(weather == 4, 3, weather)) %>%
+  step_mutate(season = as_factor(season),
+              holiday = as_factor(holiday),
+              workingday = as_factor(workingday),
+              weather = as_factor(weather)) %>%
+  step_rm(atemp) %>%
+  step_rm(datetime) %>%
+  step_zv(all_predictors())
+
+mod_rfor <- rand_forest(
+  mtry = tune(),
+  min_n = tune(),
+  trees = 500
+) %>%
+  set_engine("ranger") %>%
+  set_mode("regression")
+
+rfor_wf <- workflow() %>%
+  add_model(mod_rfor) %>%
+  add_recipe(myrecipe)
+
+rf_grid <- grid_regular(mtry(range = c(1, 11)),
+             min_n(),
+             levels = 10)
+
+folds <- vfold_cv(train, v = 5)
+
+cv_results <- rfor_wf %>%
+  tune_grid(resamples = folds,
+            grid = rf_grid,
+            metrics = metric_set(rmse))
+
+tuning_params = cv_results %>%
+  select_best("rmse")
+
+final_wf <- rfor_wf %>%
+  finalize_workflow(parameters = tuning_params) %>%
+  fit(data = train)
+
+preds <- predict(final_wf, new_data = test) %>%
+  mutate(count = exp(.pred)) %>%
+  mutate(datetime = format(test$datetime)) %>%
+  mutate(count = if_else(count < 0, 0, count)) %>%
+  dplyr::select(datetime, count)
+
+vroom_write(preds, "pen.csv", delim = ",")
+
+
+#--------------- Stacked Models ------------------------
+
+
+library(tidymodels)
+library(tidyverse)
+library(vroom)
+library(rpart)
+library(ranger)
+library(stacks)
+
+setwd("C:/Users/rileyw/Bike_Share")
+# Read in the training data set
+vroom("train.csv") -> train
+vroom("test.csv") -> test
+
+train <- train %>%
+  mutate(count = log(count)) %>%
+  select(-c(casual, registered))
+
+myrecipe <- recipe(count ~ .,
+                   data = train) %>%
+  step_mutate(hour = hour(datetime)) %>% # create an hour variable
+  step_mutate(hour = as.numeric(hour)) %>% # change the hour to be numeric
+  step_mutate(timeDay = case_when(hour >= 22 | hour <= 6 ~ "Night", # make a time of day variable
+                                  hour > 6 & hour < 22 ~ "Day")) %>% # with night and day
+  step_mutate(timeDay=factor(timeDay)) %>%
+  step_mutate(weather = if_else(weather == 4, 3, weather)) %>%
+  step_mutate(season = as_factor(season),
+              holiday = as_factor(holiday),
+              workingday = as_factor(workingday),
+              weather = as_factor(weather)) %>%
+  step_dummy(all_factor_predictors()) %>%
+  step_rm(atemp) %>%
+  step_rm(datetime) %>%
+  step_zv(all_predictors())
+
+untunedModel <- control_stack_grid()
+tunedModel <- control_stack_resamples()
+
+lin_mod <- linear_reg() %>%
+  set_engine("lm")
+
+lin_wf <- workflow() %>%
+  add_recipe(myrecipe) %>%
+  add_model(lin_mod)
+
+folds <- vfold_cv(train, v = 5)
+lin_cv <- lin_wf %>%
+  fit_resamples(folds,
+                control = tunedModel)
+
+pen_mod <- linear_reg(penalty = tune(),
+                       mixture = tune()) %>%
+  set_engine("glmnet")
+
+pen_wf <- workflow() %>%
+  add_model(pen_mod) %>%
+  add_recipe(myrecipe)
+
+pen_grid <- grid_regular(penalty(),
+                         mixture(),
+                         levels = 10)
+
+pen_cv <- pen_wf %>%
+  tune_grid(resamples = folds,
+            grid = pen_grid,
+            metrics = metric_set(rmse),
+            control = untunedModel)
+tree_mod <- decision_tree(tree_depth = tune(),
+                          min_n = tune()) %>%
+  set_engine("rpart") %>%
+  set_mode("regression")
+
+tree_wf <- workflow() %>%
+  add_model(tree_mod) %>%
+  add_recipe(myrecipe)
+
+tree_grid <- grid_regular(
+  tree_depth(),
+  min_n(),
+  levels = 10
+)
+
+tree_cv <- tree_wf %>%
+  tune_grid(grid = tree_grid,
+            resamples = folds,
+            metrics = metric_set(rmse),
+            control = untunedModel
+            )
+
+
+stack_mod <- stacks() %>%
+  add_candidates(lin_cv) %>%
+  add_candidates(pen_cv) %>%
+  add_candidates(tree_cv) %>%
+  blend_predictions() %>%
+  fit_members()
+
+preds <- predict(stack_mod, new_data = test) %>%
+  mutate(count = exp(.pred)) %>%
+  mutate(datetime = format(test$datetime)) %>%
+  mutate(count = if_else(count < 0, 0, count)) %>%
+  dplyr::select(datetime, count)
+
+vroom_write(preds, "pen.csv", delim = ",")
